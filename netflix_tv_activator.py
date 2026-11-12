@@ -89,9 +89,10 @@ def activate_tv_code(cookie_dict, code):
             # === Bước 2: Vào trang TV8 ===
             page.goto(TV_URL, wait_until="domcontentloaded")
             
-            # Chờ ô nhập mã xuất hiện
+            # Chờ ô nhập mã xuất hiện. 12s: cookie TV-được thì ô mã hiện ngay (~3-5s), nên
+            # mốc này chỉ rút ngắn lúc phát hiện cookie KHÔNG-TV → /tv thử 10 lượt nhanh hơn.
             try:
-                page.wait_for_selector('input[data-uia="pin-number-0"]', timeout=20000)
+                page.wait_for_selector('input[data-uia="pin-number-0"]', timeout=12000)
             except PlaywrightTimeoutError:
                 # Đã qua được bước check /account (cookie xác thực OK) mà /tv8 không hiện ô nhập mã.
                 url = page.url.lower()

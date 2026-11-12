@@ -100,8 +100,9 @@ _last_usage = {}  # {user_id: timestamp}
 RATE_LIMIT_SECONDS = 30
 
 # --- /tv tuning ---
-TV_MAX_RETRIES = 3          # Số cookie thử tối đa mỗi lần /tv (mỗi lần thử khá tốn thời gian)
-TV_WATCHDOG_SECONDS = 150   # Treo quá mốc này thì báo timeout thay vì để tin nhắn đứng hình
+TV_MAX_RETRIES = 10         # Thử tối đa 10 cookie mỗi lần /tv. Cookie không-TV không bị xóa nên
+                            # cứ thử nhiều để tăng tỉ lệ trúng cookie hỗ trợ TV.
+TV_WATCHDOG_SECONDS = 380   # Đủ cho ~10 lượt thử; treo quá mốc này thì báo timeout (không đứng hình)
 
 def check_rate_limit(user_id):
     """Trả về số giây còn phải chờ, hoặc 0 nếu OK."""
