@@ -79,34 +79,38 @@ def get_active_cookie():
     return cookie
 
 def get_active_cookie_for_tv():
-    """Phát cookie cho luồng /tv: giống get_active_cookie nhưng CHỈ chọn cookie còn
-    sống VÀ chưa bị đánh dấu không hỗ trợ TV (tv_supported != False).
+    """Phát cookie cho /tv, ƯU TIÊN cookie ĐÃ BIẾT hỗ trợ TV để tăng tỉ lệ trúng.
 
-    Dùng cờ vòng xoay RIÊNG 'served_in_tv_round' để không ảnh hưởng tới rotation của
-    /get_token. Cookie bị đánh dấu tv_supported=False vẫn phục vụ bình thường cho
-    /get_token (vì get_active_cookie không lọc theo cờ này).
+    Thứ tự ưu tiên trong mỗi vòng (xoay vòng không lặp bằng cờ riêng served_in_tv_round):
+      1) tv_supported == True   → đã xác nhận TV được (ưu tiên cao nhất)
+      2) tv_supported chưa set  → chưa biết, vừa phục vụ vừa "dò"
+    KHÔNG BAO GIỜ chọn tv_supported == False. /get_token không bị ảnh hưởng (nó dùng
+    get_active_cookie, không lọc theo cờ này).
     """
     db = get_db()
     cookies_col = db.cookies
 
-    # {"$ne": False} khớp cả document CHƯA có field tv_supported (cookie mới) → mặc
-    # định coi là hỗ trợ TV cho tới khi bị chứng minh ngược lại.
-    base_filter = {"is_alive": True, "tv_supported": {"$ne": False}}
-
-    def _pick_unserved():
-        docs = list(cookies_col.aggregate([
-            {"$match": {**base_filter, "served_in_tv_round": {"$ne": True}}},
-            {"$sample": {"size": 1}},
-        ]))
+    def _sample(match):
+        docs = list(cookies_col.aggregate([{"$match": match}, {"$sample": {"size": 1}}]))
         return docs[0] if docs else None
 
-    cookie = _pick_unserved()
+    alive = {"is_alive": True}
+    known = {**alive, "tv_supported": True}
+    # {"$nin": [True, False]} khớp document CHƯA có field tv_supported (cookie mới/chưa dò).
+    unknown = {**alive, "tv_supported": {"$nin": [True, False]}}
+
+    # Ưu tiên cookie đã-biết-TV chưa phát → rồi tới cookie chưa-biết chưa phát trong vòng.
+    cookie = (_sample({**known, "served_in_tv_round": {"$ne": True}})
+              or _sample({**unknown, "served_in_tv_round": {"$ne": True}}))
     if not cookie:
-        # Hết vòng -> reset cờ cho cookie sống + hỗ trợ TV rồi bắt đầu vòng mới.
-        reset = cookies_col.update_many(base_filter, {"$set": {"served_in_tv_round": False}})
+        # Hết vòng -> reset cờ cho mọi cookie còn dùng được cho TV (True + chưa biết) rồi phát lại.
+        reset = cookies_col.update_many(
+            {**alive, "tv_supported": {"$ne": False}},
+            {"$set": {"served_in_tv_round": False}}
+        )
         if reset.matched_count == 0:
-            return None  # Không còn cookie sống nào hỗ trợ TV
-        cookie = _pick_unserved()
+            return None  # Không còn cookie nào dùng được cho TV
+        cookie = _sample(known) or _sample(unknown)
         if not cookie:
             return None
 
@@ -115,6 +119,29 @@ def get_active_cookie_for_tv():
         {"$set": {"served_in_tv_round": True}, "$inc": {"times_used": 1}}
     )
     return cookie
+
+def count_tv_stats():
+    """Thống kê khả năng TV của kho cookie (dùng cho /tvstats)."""
+    db = get_db()
+    c = db.cookies
+    alive = c.count_documents({"is_alive": True})
+    tv_yes = c.count_documents({"is_alive": True, "tv_supported": True})
+    tv_no = c.count_documents({"is_alive": True, "tv_supported": False})
+    tv_unknown = c.count_documents({"is_alive": True, "tv_supported": {"$nin": [True, False]}})
+    has_secure = c.count_documents({
+        "is_alive": True,
+        "$or": [
+            {"cookie_data.SecureNetflixId": {"$exists": True, "$nin": ["", None]}},
+            {"cookie_data.secure_netflix_id": {"$exists": True, "$nin": ["", None]}},
+        ]
+    })
+    return {
+        "alive": alive,
+        "tv_yes": tv_yes,
+        "tv_no": tv_no,
+        "tv_unknown": tv_unknown,
+        "has_secure": has_secure,
+    }
 
 def mark_cookie_as_dead(netflix_id):
     """Đánh dấu một cookie là đã chết"""

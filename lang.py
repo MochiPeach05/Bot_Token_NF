@@ -131,6 +131,18 @@ TEXTS = {
         ),
         "stats_error": "❌ Lỗi truy cập Database: {error}",
 
+        # === /tvstats (Admin) ===
+        "tvstats_report": (
+            "📺 *THỐNG KÊ KHẢ NĂNG TV*\n"
+            "═══════════════════\n"
+            "🍪 Cookie còn sống: `{alive}`\n"
+            "✅ Đã biết hỗ trợ TV: `{tv_yes}`\n"
+            "❌ Đã biết KHÔNG hỗ trợ TV: `{tv_no}`\n"
+            "❓ Chưa rõ (chưa thử): `{tv_unknown}`\n"
+            "🔐 Có SecureNetflixId: `{has_secure}`/`{alive}`\n\n"
+            "_Mẹo: /tv ưu tiên cookie ✅. Pool ✅ lớn dần theo số lần kích hoạt thành công._"
+        ),
+
         # === /clear_cookies (Admin) ===
         "clear_no_perm": "❌ Bạn không có quyền thực hiện lệnh này.",
         "clear_confirm": "⚠️ *BẠN CÓ CHẮC CHẮN MUỐN XÓA TOÀN BỘ COOKIE?*\n\nHành động này không thể hoàn tác!",
@@ -351,6 +363,18 @@ TEXTS = {
             "- 🎟 Total links generated: `{total_generated}`\n"
         ),
         "stats_error": "❌ Database access error: {error}",
+
+        # === /tvstats (Admin) ===
+        "tvstats_report": (
+            "📺 *TV CAPABILITY STATS*\n"
+            "═══════════════════\n"
+            "🍪 Alive cookies: `{alive}`\n"
+            "✅ Known TV-capable: `{tv_yes}`\n"
+            "❌ Known NOT TV-capable: `{tv_no}`\n"
+            "❓ Unknown (untested): `{tv_unknown}`\n"
+            "🔐 Has SecureNetflixId: `{has_secure}`/`{alive}`\n\n"
+            "_Tip: /tv prefers ✅ cookies. The ✅ pool grows with each successful activation._"
+        ),
 
         # === /clear_cookies (Admin) ===
         "clear_no_perm": "❌ You don't have permission to do this.",

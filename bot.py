@@ -308,6 +308,19 @@ def stats_command(message):
         bot.reply_to(message, t(user_id, "stats_error", error=e))
 
 
+@bot.message_handler(commands=['tvstats'])
+def tvstats_command(message):
+    user_id = message.from_user.id
+    if not is_admin(user_id):
+        bot.reply_to(message, t(user_id, "stats_no_perm"))
+        return
+    try:
+        s = db.count_tv_stats()
+        bot.reply_to(message, t(user_id, "tvstats_report", **s), parse_mode="Markdown")
+    except Exception as e:
+        bot.reply_to(message, t(user_id, "stats_error", error=e))
+
+
 @bot.message_handler(commands=['clear_cookies'])
 def clear_command(message):
     user_id = message.from_user.id
@@ -673,7 +686,9 @@ def tv_command(message):
                         return
                     try:
                         tv_activator.activate_tv_code(cookie_doc['cookie_data'], tv_code)
-                        # Thành công! Admin KHÔNG bị tính lượt
+                        # Thành công → ghi nhớ cookie này HỖ TRỢ TV để ưu tiên lần sau.
+                        db.set_cookie_tv_supported(cookie_doc['_id'], True)
+                        # Admin KHÔNG bị tính lượt
                         if not is_admin(user_id):
                             db.increment_link_usage(user_id, "tv")
                         remain_after = remain - 1 if not is_admin(user_id) else remain
@@ -874,6 +889,7 @@ def setup_menu():
                 telebot.types.BotCommand("guide", "🎬 Tutorial / Hướng dẫn"),
                 telebot.types.BotCommand("language", "🌐 Language / Ngôn ngữ"),
                 telebot.types.BotCommand("stats", "DB Stats (Admin)"),
+                telebot.types.BotCommand("tvstats", "TV capability stats (Admin)"),
                 telebot.types.BotCommand("clear_cookies", "Clear Cookie DB (Admin)"),
                 telebot.types.BotCommand("clearcookies", "Keep only alive cookies (Admin)"),
                 telebot.types.BotCommand("start", "Info & Help"),
