@@ -80,12 +80,14 @@ def get_ref_bonus(ref_count):
 def save_dead_cookie_to_file(cookie_doc):
     os.makedirs("Cookie_loi", exist_ok=True)
     source_file = cookie_doc.get('source', 'unknown.txt')
-    safe_name = f"dead_{int(time.time())}_{source_file}"
+    # Thêm đuôi _id để tên file không bị trùng khi xóa hàng loạt trong /clearcookies
+    uid = str(cookie_doc.get('_id', ''))[-6:]
+    safe_name = f"dead_{int(time.time())}_{uid}_{source_file}"
     if not safe_name.endswith('.txt') and not safe_name.endswith('.json'):
         safe_name += '.json'
     error_path = os.path.join("Cookie_loi", safe_name)
     with open(error_path, "w", encoding="utf-8") as f:
-        json.dump(cookie_doc['cookie_data'], f, indent=4)
+        json.dump(cookie_doc.get('cookie_data', {}), f, indent=4)
 
 def is_admin(user_id):
     if not ADMIN_ID:
@@ -341,6 +343,115 @@ def handle_clear_confirm(call):
                               message_id=call.message.message_id)
 
 
+# --- /clearcookies: quét kho, chỉ giữ cookie còn sống (test qua API Netflix) ---
+_clearcookies_running = False
+
+@bot.message_handler(commands=['clearcookies'])
+def clearcookies_command(message):
+    global _clearcookies_running
+    user_id = message.from_user.id
+    if not is_admin(user_id):
+        bot.reply_to(message, t(user_id, "clear_no_perm"))
+        return
+
+    # Chặn chạy chồng nhiều tiến trình cùng lúc
+    if _clearcookies_running:
+        bot.reply_to(message, t(user_id, "clearcookies_busy"))
+        return
+
+    _clearcookies_running = True
+    try:
+        loading_msg = bot.reply_to(message, t(user_id, "clearcookies_start"))
+    except Exception:
+        _clearcookies_running = False  # Tránh kẹt cờ nếu gửi message thất bại
+        raise
+
+    def _process_clearcookies():
+        global _clearcookies_running
+        try:
+            cookies = db.get_all_cookies()
+            total = len(cookies)
+            if total == 0:
+                try:
+                    bot.edit_message_text(t(user_id, "clearcookies_empty"),
+                                          chat_id=message.chat.id, message_id=loading_msg.message_id)
+                except Exception:
+                    pass
+                return
+
+            alive = dead = skipped = 0
+            last_edit = 0
+
+            for idx, cookie_doc in enumerate(cookies, start=1):
+                data = cookie_doc.get('cookie_data') or {}
+                netflix_id = data.get('NetflixId') or data.get('netflix_id')
+
+                if not netflix_id:
+                    # Không có NetflixId → chắc chắn hỏng
+                    db.delete_cookie_by_id(cookie_doc['_id'])
+                    save_dead_cookie_to_file(cookie_doc)
+                    dead += 1
+                else:
+                    try:
+                        extractor.fetch_nftoken(netflix_id)
+                        # Gọi API thành công (có token) → cookie còn sống, giữ lại
+                        alive += 1
+                        if not cookie_doc.get('is_alive', True):
+                            db.set_cookie_alive(cookie_doc['_id'], True)
+                    except extractor.requests.exceptions.HTTPError as e:
+                        status = getattr(getattr(e, 'response', None), 'status_code', None)
+                        if status in (401, 403, 404):
+                            # Cookie bị Netflix từ chối → chết, xóa
+                            db.delete_cookie_by_id(cookie_doc['_id'])
+                            save_dead_cookie_to_file(cookie_doc)
+                            dead += 1
+                        else:
+                            # 429 / 5xx... → không chắc, giữ lại cho an toàn
+                            skipped += 1
+                    except ValueError:
+                        # API phản hồi nhưng không có token → cookie hỏng, xóa
+                        db.delete_cookie_by_id(cookie_doc['_id'])
+                        save_dead_cookie_to_file(cookie_doc)
+                        dead += 1
+                    except Exception:
+                        # Lỗi mạng/timeout... → không chắc chết, giữ lại
+                        skipped += 1
+
+                # Cập nhật tiến trình định kỳ (tránh spam Telegram)
+                if idx - last_edit >= 10 or idx == total:
+                    last_edit = idx
+                    try:
+                        bot.edit_message_text(
+                            t(user_id, "clearcookies_progress",
+                              checked=idx, total=total, alive=alive, dead=dead, skipped=skipped),
+                            chat_id=message.chat.id, message_id=loading_msg.message_id,
+                            parse_mode="Markdown")
+                    except Exception:
+                        pass
+
+                time.sleep(0.3)  # Nhẹ tay với API Netflix để tránh bị rate-limit
+
+            try:
+                bot.edit_message_text(
+                    t(user_id, "clearcookies_done",
+                      total=total, alive=alive, dead=dead, skipped=skipped),
+                    chat_id=message.chat.id, message_id=loading_msg.message_id,
+                    parse_mode="Markdown")
+            except Exception:
+                pass
+
+        except Exception as e:
+            try:
+                bot.edit_message_text(t(user_id, "clearcookies_error", error=e),
+                                      chat_id=message.chat.id, message_id=loading_msg.message_id)
+            except Exception:
+                pass
+        finally:
+            _clearcookies_running = False
+
+    threading.Thread(target=_process_clearcookies, daemon=True).start()
+
+
 @bot.message_handler(commands=['get_token'])
 def get_token_command(message):
     user_id = message.from_user.id
@@ -517,9 +628,9 @@ def tv_command(message):
         try:
             max_retries = 5
             for attempt in range(max_retries):
-                cookie_doc = db.get_active_cookie()
+                cookie_doc = db.get_active_cookie_for_tv()
                 if not cookie_doc:
-                    bot.edit_message_text(t(user_id, "no_cookie"),
+                    bot.edit_message_text(t(user_id, "tv_no_supported"),
                                           chat_id=message.chat.id, message_id=loading_msg.message_id)
                     return
 
@@ -536,6 +647,21 @@ def tv_command(message):
                         message_id=loading_msg.message_id, parse_mode="Markdown")
                     return
 
+                except tv_activator.TVNotSupportedError as e:
+                    # Cookie VẪN SỐNG nhưng tài khoản/gói không hỗ trợ TV
+                    # → chỉ BỎ QUA, đổi cookie khác, KHÔNG đánh dấu chết / KHÔNG xóa.
+                    # Nếu là tín hiệu chắc chắn (persist) thì ghi nhớ tv_supported=False
+                    # để các lần /tv sau không bốc trúng cookie này nữa (vẫn dùng cho /get_token).
+                    if getattr(e, "persist", True):
+                        db.set_cookie_tv_supported(cookie_doc['_id'], False)
+                    try:
+                        bot.edit_message_text(
+                            t(user_id, "tv_cookie_switch", attempt=attempt+1),
+                            chat_id=message.chat.id, message_id=loading_msg.message_id)
+                    except Exception:
+                        pass
+                    time.sleep(1)
+
                 except ValueError as e:
                     err_msg = str(e)
                     if "Invalid TV Code" in err_msg or "hợp lệ" in err_msg or "hết hạn" in err_msg:
@@ -544,6 +670,7 @@ def tv_command(message):
                             chat_id=message.chat.id, message_id=loading_msg.message_id)
                         return
                     else:
+                        # Chỉ on-hold / cookie chết (bắt ở bước check /account) mới đánh dấu chết.
                         db.mark_cookie_as_dead(cookie_doc['netflix_id'])
                         save_dead_cookie_to_file(cookie_doc)
                         try:
@@ -728,6 +855,7 @@ def setup_menu():
                 telebot.types.BotCommand("language", "🌐 Language / Ngôn ngữ"),
                 telebot.types.BotCommand("stats", "DB Stats (Admin)"),
                 telebot.types.BotCommand("clear_cookies", "Clear Cookie DB (Admin)"),
+                telebot.types.BotCommand("clearcookies", "Keep only alive cookies (Admin)"),
                 telebot.types.BotCommand("start", "Info & Help"),
                 telebot.types.BotCommand("ping", "Check bot connection")
             ], scope=telebot.types.BotCommandScopeChat(ADMIN_ID))

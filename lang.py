@@ -140,6 +140,25 @@ TEXTS = {
         "clear_cancelled": "👍 Đã hủy. Không có cookie nào bị xóa.",
         "clear_error": "❌ Lỗi: {error}",
 
+        # === /clearcookies (Admin) — lọc, chỉ giữ cookie còn sống ===
+        "clearcookies_start": "🧹 Đang quét toàn bộ kho cookie và kiểm tra từng cái qua API Netflix...\n⏳ Việc này có thể mất vài phút nếu kho lớn, vui lòng chờ.",
+        "clearcookies_busy": "⏳ Đang có một tiến trình lọc kho cookie chạy rồi. Vui lòng chờ nó xong nhé.",
+        "clearcookies_empty": "ℹ️ Kho cookie đang trống, không có gì để lọc.",
+        "clearcookies_progress": (
+            "🧹 *Đang lọc kho cookie...*\n"
+            "🔎 Đã kiểm tra: *{checked}/{total}*\n"
+            "✅ Sống: *{alive}*  |  ❌ Chết (đã xóa): *{dead}*  |  ⏭ Bỏ qua: *{skipped}*"
+        ),
+        "clearcookies_done": (
+            "✅ *ĐÃ LỌC XONG KHO COOKIE!*\n"
+            "═══════════════════\n"
+            "📦 Tổng đã quét: *{total}*\n"
+            "✅ Còn sống (giữ lại): *{alive}*\n"
+            "❌ Đã chết (đã xóa): *{dead}*\n"
+            "⏭ Không chắc / lỗi mạng (giữ lại): *{skipped}*"
+        ),
+        "clearcookies_error": "❌ Lỗi khi lọc kho cookie: {error}",
+
         # === /get_token ===
         "quota_exceeded": "❌ Hôm nay bạn đã dùng hết *{cap} lượt* rồi!\n🗓 Hãy quay lại vào ngày mai hoặc gõ `/ref` để mời bạn bè nhận thêm lượt nhé.",
         "token_loading": "⏳ Đang tìm tài khoản khả dụng và tạo token, vui lòng chờ...",
@@ -169,6 +188,7 @@ TEXTS = {
         "tv_cookie_switch": "♻️ Tài khoản #{attempt} không hỗ trợ, đang đổi tài khoản khác...",
         "tv_connection_error": "❌ Lỗi kết nối: {error}",
         "tv_all_dead": "❌ Đã thử nhiều tài khoản nhưng không cái nào hỗ trợ TV. Vui lòng thử lại sau!",
+        "tv_no_supported": "❌ Hiện trong kho không có tài khoản nào hỗ trợ đăng nhập TV. Vui lòng thử lại sau hoặc liên hệ Admin!",
         "tv_unexpected": "❌ Lỗi không mong đợi: {error}",
 
         # === Error Report Callback ===
@@ -340,6 +360,25 @@ TEXTS = {
         "clear_cancelled": "👍 Cancelled. No cookies were deleted.",
         "clear_error": "❌ Error: {error}",
 
+        # === /clearcookies (Admin) — keep only alive cookies ===
+        "clearcookies_start": "🧹 Scanning the whole cookie store and testing each one via Netflix API...\n⏳ This may take a few minutes if the store is large, please wait.",
+        "clearcookies_busy": "⏳ A cookie-store filter is already running. Please wait for it to finish.",
+        "clearcookies_empty": "ℹ️ The cookie store is empty, nothing to filter.",
+        "clearcookies_progress": (
+            "🧹 *Filtering cookie store...*\n"
+            "🔎 Checked: *{checked}/{total}*\n"
+            "✅ Alive: *{alive}*  |  ❌ Dead (removed): *{dead}*  |  ⏭ Skipped: *{skipped}*"
+        ),
+        "clearcookies_done": (
+            "✅ *COOKIE STORE FILTERED!*\n"
+            "═══════════════════\n"
+            "📦 Total scanned: *{total}*\n"
+            "✅ Alive (kept): *{alive}*\n"
+            "❌ Dead (removed): *{dead}*\n"
+            "⏭ Inconclusive / network error (kept): *{skipped}*"
+        ),
+        "clearcookies_error": "❌ Error filtering cookie store: {error}",
+
         # === /get_token ===
         "quota_exceeded": "❌ You've used all *{cap} uses* for today!\n🗓 Come back tomorrow or use `/ref` to invite friends for bonus uses.",
         "token_loading": "⏳ Finding an available account and generating token, please wait...",
@@ -369,6 +408,7 @@ TEXTS = {
         "tv_cookie_switch": "♻️ Account #{attempt} not supported, switching to another...",
         "tv_connection_error": "❌ Connection error: {error}",
         "tv_all_dead": "❌ Tried multiple accounts but none support TV. Please try again later!",
+        "tv_no_supported": "❌ No TV-capable accounts available right now. Please try again later or contact Admin!",
         "tv_unexpected": "❌ Unexpected error: {error}",
 
         # === Error Report Callback ===

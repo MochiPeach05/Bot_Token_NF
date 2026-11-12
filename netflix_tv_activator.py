@@ -14,6 +14,23 @@ TV_URL = "https://www.netflix.com/tv8"
 BROWSERLESS_WS = f"wss://production-sfo.browserless.io/chrome/playwright?token={BROWSERLESS_TOKEN}"
 
 
+class TVNotSupportedError(ValueError):
+    """Cookie VẪN CÒN SỐNG nhưng tài khoản/gói không dùng được tính năng đăng
+    nhập TV (device-link). Caller nên BỎ QUA và đổi sang cookie khác, TUYỆT ĐỐI
+    KHÔNG đánh dấu cookie là chết (vì nó vẫn dùng tốt cho /get_token).
+    Kế thừa ValueError để tương thích ngược với code bắt lỗi cũ.
+
+    persist=True  → tín hiệu CHẮC CHẮN tài khoản không hỗ trợ TV (vd bị đẩy về
+                    login khỏi luồng TV). Caller nên ghi nhớ (tv_supported=False)
+                    để các lần /tv sau không bốc trúng cookie này nữa.
+    persist=False → tín hiệu MƠ HỒ (vd /tv8 load chậm, có thể do mạng/Browserless).
+                    Caller chỉ bỏ qua tạm thời, KHÔNG ghi nhớ.
+    """
+    def __init__(self, message, persist=True):
+        super().__init__(message)
+        self.persist = persist
+
+
 def activate_tv_code(cookie_dict, code):
     """
     Kết nối tới Chrome remote trên Browserless.io để kích hoạt TV.
@@ -73,10 +90,13 @@ def activate_tv_code(cookie_dict, code):
             try:
                 page.wait_for_selector('input[data-uia="pin-number-0"]', timeout=20000)
             except PlaywrightTimeoutError:
+                # Đã qua được bước check /account (cookie xác thực OK) mà /tv8 không hiện ô nhập mã.
                 url = page.url.lower()
                 if "login" in url:
-                    raise ValueError("Cookie expired or plan does not support TV.")
-                raise ValueError("Cannot load TV8 page, cookie may have expired.")
+                    # Bị đẩy khỏi /tv8 về login → CHẮC CHẮN tài khoản/gói không hỗ trợ TV → ghi nhớ.
+                    raise TVNotSupportedError("Account/plan does not support TV device login.", persist=True)
+                # Không rõ lý do (có thể mạng/Browserless chậm) → bỏ qua tạm, KHÔNG ghi nhớ.
+                raise TVNotSupportedError("Cannot load TV8 page (possibly transient).", persist=False)
             
             # === Bước 3: Nhập từng chữ số ===
             for i, digit in enumerate(code):
@@ -112,9 +132,10 @@ def activate_tv_code(cookie_dict, code):
             if "success" in url or "browse" in url or "tv/out" in url:
                 return True
             
-            # Bị redirect về login
+            # Bị redirect về login sau khi submit → tài khoản không hỗ trợ TV
+            # (cookie vẫn sống vì đã qua bước check /account) → bỏ qua, không xóa.
             if "login" in url and "/tv" not in url:
-                raise ValueError("Cookie rejected for TV feature.")
+                raise TVNotSupportedError("Account rejected for TV feature.")
             
             # Form vẫn còn → mã sai
             form_el = page.query_selector('input[data-uia="pin-number-0"]')

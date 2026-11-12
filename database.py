@@ -78,6 +78,44 @@ def get_active_cookie():
     )
     return cookie
 
+def get_active_cookie_for_tv():
+    """Phát cookie cho luồng /tv: giống get_active_cookie nhưng CHỈ chọn cookie còn
+    sống VÀ chưa bị đánh dấu không hỗ trợ TV (tv_supported != False).
+
+    Dùng cờ vòng xoay RIÊNG 'served_in_tv_round' để không ảnh hưởng tới rotation của
+    /get_token. Cookie bị đánh dấu tv_supported=False vẫn phục vụ bình thường cho
+    /get_token (vì get_active_cookie không lọc theo cờ này).
+    """
+    db = get_db()
+    cookies_col = db.cookies
+
+    # {"$ne": False} khớp cả document CHƯA có field tv_supported (cookie mới) → mặc
+    # định coi là hỗ trợ TV cho tới khi bị chứng minh ngược lại.
+    base_filter = {"is_alive": True, "tv_supported": {"$ne": False}}
+
+    def _pick_unserved():
+        docs = list(cookies_col.aggregate([
+            {"$match": {**base_filter, "served_in_tv_round": {"$ne": True}}},
+            {"$sample": {"size": 1}},
+        ]))
+        return docs[0] if docs else None
+
+    cookie = _pick_unserved()
+    if not cookie:
+        # Hết vòng -> reset cờ cho cookie sống + hỗ trợ TV rồi bắt đầu vòng mới.
+        reset = cookies_col.update_many(base_filter, {"$set": {"served_in_tv_round": False}})
+        if reset.matched_count == 0:
+            return None  # Không còn cookie sống nào hỗ trợ TV
+        cookie = _pick_unserved()
+        if not cookie:
+            return None
+
+    cookies_col.update_one(
+        {"_id": cookie["_id"]},
+        {"$set": {"served_in_tv_round": True}, "$inc": {"times_used": 1}}
+    )
+    return cookie
+
 def mark_cookie_as_dead(netflix_id):
     """Đánh dấu một cookie là đã chết"""
     db = get_db()
@@ -151,6 +189,27 @@ def clear_all_cookies():
     db = get_db()
     cookies_col = db.cookies
     return cookies_col.delete_many({}).deleted_count
+
+def get_all_cookies():
+    """Lấy toàn bộ document cookie trong kho (dùng cho /clearcookies)."""
+    db = get_db()
+    return list(db.cookies.find({}))
+
+def delete_cookie_by_id(obj_id):
+    """Xóa 1 cookie theo _id. Trả về số doc đã xóa (0 hoặc 1)."""
+    db = get_db()
+    return db.cookies.delete_one({"_id": obj_id}).deleted_count
+
+def set_cookie_alive(obj_id, alive=True):
+    """Bật/tắt cờ is_alive cho 1 cookie theo _id (dùng khi test lại thấy còn sống)."""
+    db = get_db()
+    db.cookies.update_one({"_id": obj_id}, {"$set": {"is_alive": alive}})
+
+def set_cookie_tv_supported(obj_id, supported):
+    """Ghi nhớ cookie có hỗ trợ đăng nhập TV hay không (dùng để /tv né cookie không
+    TV được, trong khi /get_token vẫn dùng bình thường)."""
+    db = get_db()
+    db.cookies.update_one({"_id": obj_id}, {"$set": {"tv_supported": supported}})
 
 # --- User Quota Management ---
 def get_user(user_id, username=""):
