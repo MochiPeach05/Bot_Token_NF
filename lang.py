@@ -189,6 +189,7 @@ TEXTS = {
         "tv_connection_error": "❌ Lỗi kết nối: {error}",
         "tv_all_dead": "❌ Đã thử nhiều tài khoản nhưng không cái nào hỗ trợ TV. Vui lòng thử lại sau!",
         "tv_no_supported": "❌ Hiện trong kho không có tài khoản nào hỗ trợ đăng nhập TV. Vui lòng thử lại sau hoặc liên hệ Admin!",
+        "tv_timeout": "⏳ Kích hoạt TV mất quá nhiều thời gian (Chrome/Browserless hoặc Netflix có thể đang quá tải). Vui lòng thử lại sau ít phút nhé!",
         "tv_unexpected": "❌ Lỗi không mong đợi: {error}",
 
         # === Error Report Callback ===

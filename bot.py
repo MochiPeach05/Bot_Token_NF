@@ -99,6 +99,10 @@ def is_admin(user_id):
 _last_usage = {}  # {user_id: timestamp}
 RATE_LIMIT_SECONDS = 30
 
+# --- /tv tuning ---
+TV_MAX_RETRIES = 3          # Số cookie thử tối đa mỗi lần /tv (mỗi lần thử khá tốn thời gian)
+TV_WATCHDOG_SECONDS = 150   # Treo quá mốc này thì báo timeout thay vì để tin nhắn đứng hình
+
 def check_rate_limit(user_id):
     """Trả về số giây còn phải chờ, hoặc 0 nếu OK."""
     if is_admin(user_id):
@@ -623,83 +627,99 @@ def tv_command(message):
     mark_rate_limit(user_id)
     loading_msg = bot.reply_to(message, t(user_id, "tv_loading", code=tv_code), parse_mode="Markdown")
 
-    # Chạy trong thread nền để webhook không bị timeout
+    # Chạy trong thread nền để webhook không bị timeout.
+    # Có "watchdog": nếu lõi xử lý (Browserless/Netflix) treo quá lâu, vẫn trả về 1
+    # message timeout cho user thay vì để tin nhắn đứng hình mãi mãi.
     def _process_tv():
-        try:
-            max_retries = 5
-            for attempt in range(max_retries):
-                cookie_doc = db.get_active_cookie_for_tv()
-                if not cookie_doc:
-                    bot.edit_message_text(t(user_id, "tv_no_supported"),
-                                          chat_id=message.chat.id, message_id=loading_msg.message_id)
-                    return
+        lock = threading.Lock()
+        state = {"done": False}
 
+        def _respond(text, parse_mode=None):
+            # Chỉ gửi ĐÚNG MỘT message kết thúc; ai xong trước thắng (watchdog vs worker).
+            with lock:
+                if state["done"]:
+                    return
+                state["done"] = True
+            try:
+                bot.edit_message_text(text, chat_id=message.chat.id,
+                                      message_id=loading_msg.message_id, parse_mode=parse_mode)
+            except Exception:
                 try:
-                    tv_activator.activate_tv_code(cookie_doc['cookie_data'], tv_code)
+                    bot.edit_message_text(text, chat_id=message.chat.id,
+                                          message_id=loading_msg.message_id)
+                except Exception:
+                    pass
 
-                    # Thành công! Admin KHÔNG bị tính lượt
-                    if not is_admin(user_id):
-                        db.increment_link_usage(user_id, "tv")
-                    remain_after = remain - 1 if not is_admin(user_id) else remain
-                    bot.edit_message_text(
-                        t(user_id, "tv_success", remain=remain_after, cap=cap),
-                        chat_id=message.chat.id,
-                        message_id=loading_msg.message_id, parse_mode="Markdown")
+        def _progress(text):
+            # Cập nhật tiến trình (không kết thúc); bỏ qua nếu đã có message kết thúc.
+            with lock:
+                if state["done"]:
                     return
+            try:
+                bot.edit_message_text(text, chat_id=message.chat.id,
+                                      message_id=loading_msg.message_id)
+            except Exception:
+                pass
 
-                except tv_activator.TVNotSupportedError as e:
-                    # Cookie VẪN SỐNG nhưng tài khoản/gói không hỗ trợ TV
-                    # → chỉ BỎ QUA, đổi cookie khác, KHÔNG đánh dấu chết / KHÔNG xóa.
-                    # Nếu là tín hiệu chắc chắn (persist) thì ghi nhớ tv_supported=False
-                    # để các lần /tv sau không bốc trúng cookie này nữa (vẫn dùng cho /get_token).
-                    if getattr(e, "persist", True):
-                        db.set_cookie_tv_supported(cookie_doc['_id'], False)
-                    try:
-                        bot.edit_message_text(
-                            t(user_id, "tv_cookie_switch", attempt=attempt+1),
-                            chat_id=message.chat.id, message_id=loading_msg.message_id)
-                    except Exception:
-                        pass
-                    time.sleep(1)
-
-                except ValueError as e:
-                    err_msg = str(e)
-                    if "Invalid TV Code" in err_msg or "hợp lệ" in err_msg or "hết hạn" in err_msg:
-                        bot.edit_message_text(
-                            t(user_id, "tv_invalid_code", error=err_msg),
-                            chat_id=message.chat.id, message_id=loading_msg.message_id)
+        def _worker():
+            last_error = None
+            try:
+                for attempt in range(TV_MAX_RETRIES):
+                    if state["done"]:
                         return
-                    else:
+                    cookie_doc = db.get_active_cookie_for_tv()
+                    if not cookie_doc:
+                        _respond(t(user_id, "tv_no_supported"))
+                        return
+                    try:
+                        tv_activator.activate_tv_code(cookie_doc['cookie_data'], tv_code)
+                        # Thành công! Admin KHÔNG bị tính lượt
+                        if not is_admin(user_id):
+                            db.increment_link_usage(user_id, "tv")
+                        remain_after = remain - 1 if not is_admin(user_id) else remain
+                        _respond(t(user_id, "tv_success", remain=remain_after, cap=cap),
+                                 parse_mode="Markdown")
+                        return
+
+                    except tv_activator.TVNotSupportedError as e:
+                        # Cookie VẪN SỐNG nhưng không hỗ trợ TV → bỏ qua, KHÔNG xóa.
+                        # Tín hiệu chắc chắn (persist) thì ghi nhớ để lần sau né cookie này.
+                        if getattr(e, "persist", True):
+                            db.set_cookie_tv_supported(cookie_doc['_id'], False)
+                        _progress(t(user_id, "tv_cookie_switch", attempt=attempt+1))
+                        time.sleep(1)
+
+                    except ValueError as e:
+                        err_msg = str(e)
+                        if "Invalid TV Code" in err_msg or "hợp lệ" in err_msg or "hết hạn" in err_msg:
+                            _respond(t(user_id, "tv_invalid_code", error=err_msg))
+                            return
                         # Chỉ on-hold / cookie chết (bắt ở bước check /account) mới đánh dấu chết.
                         db.mark_cookie_as_dead(cookie_doc['netflix_id'])
                         save_dead_cookie_to_file(cookie_doc)
-                        try:
-                            bot.edit_message_text(
-                                t(user_id, "tv_cookie_switch", attempt=attempt+1),
-                                chat_id=message.chat.id, message_id=loading_msg.message_id)
-                        except Exception:
-                            pass
+                        _progress(t(user_id, "tv_cookie_switch", attempt=attempt+1))
                         time.sleep(1)
 
-                except Exception as e:
-                    bot.edit_message_text(
-                        t(user_id, "tv_connection_error", error=e),
-                        chat_id=message.chat.id, message_id=loading_msg.message_id)
-                    return
+                    except Exception as e:
+                        # Lỗi Browserless/mạng (vd phiên bị đóng giữa chừng) → thử phiên/cookie khác.
+                        last_error = e
+                        _progress(t(user_id, "tv_cookie_switch", attempt=attempt+1))
+                        time.sleep(1)
 
-            # Hết max retries
-            try:
-                bot.edit_message_text(t(user_id, "tv_all_dead"),
-                                      chat_id=message.chat.id, message_id=loading_msg.message_id)
-            except Exception:
-                pass
-        except Exception as e:
-            try:
-                bot.edit_message_text(
-                    t(user_id, "tv_unexpected", error=e),
-                    chat_id=message.chat.id, message_id=loading_msg.message_id)
-            except Exception:
-                pass
+                # Hết lượt thử
+                if last_error is not None:
+                    _respond(t(user_id, "tv_connection_error", error=last_error))
+                else:
+                    _respond(t(user_id, "tv_all_dead"))
+            except Exception as e:
+                _respond(t(user_id, "tv_unexpected", error=e))
+
+        worker = threading.Thread(target=_worker, daemon=True)
+        worker.start()
+        worker.join(timeout=TV_WATCHDOG_SECONDS)
+        if worker.is_alive():
+            # Lõi xử lý treo quá lâu (Browserless/Netflix không phản hồi) → báo timeout.
+            _respond(t(user_id, "tv_timeout"))
 
     thread = threading.Thread(target=_process_tv, daemon=True)
     thread.start()

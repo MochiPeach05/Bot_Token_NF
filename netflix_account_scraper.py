@@ -209,7 +209,9 @@ def scrape_account_info(nftoken_link):
     if '/account?nftoken=' in browse_link:
         browse_link = browse_link.replace('/account?nftoken=', '/browse?nftoken=')
     
-    ws_url = f"wss://production-sfo.browserless.io/chrome/playwright?token={BROWSERLESS_TOKEN}"
+    # timeout=90000: nới thời gian mỗi phiên lên 90s (mặc định ~30s dễ bị đóng giữa
+    # chừng khi scrape /browse + /account) và tự dọn phiên treo sau 90s.
+    ws_url = f"wss://production-sfo.browserless.io/chrome/playwright?token={BROWSERLESS_TOKEN}&timeout=90000"
 
     with sync_playwright() as pw:
         browser = None

@@ -11,7 +11,10 @@ BROWSERLESS_TOKEN = os.environ.get("BROWSERLESS_TOKEN", "")
 TV_URL = "https://www.netflix.com/tv8"
 
 # Browserless V2 endpoint (WebSocket)
-BROWSERLESS_WS = f"wss://production-sfo.browserless.io/chrome/playwright?token={BROWSERLESS_TOKEN}"
+# timeout=90000: cho phép mỗi phiên sống tối đa 90s. Mặc định Browserless ~30s quá
+# ngắn so với luồng /tv (có thêm bước check /account) → phiên bị đóng giữa chừng gây
+# lỗi "Target page... has been closed". 90s cũng giúp tự dọn phiên treo sau 90s.
+BROWSERLESS_WS = f"wss://production-sfo.browserless.io/chrome/playwright?token={BROWSERLESS_TOKEN}&timeout=90000"
 
 
 class TVNotSupportedError(ValueError):

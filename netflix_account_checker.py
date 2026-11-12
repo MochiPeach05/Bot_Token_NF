@@ -3,8 +3,8 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 
 BROWSERLESS_TOKEN = os.environ.get("BROWSERLESS_TOKEN", "")
 
-# Browserless V2 endpoint (WebSocket)
-BROWSERLESS_WS = f"wss://production-sfo.browserless.io/chrome/playwright?token={BROWSERLESS_TOKEN}"
+# Browserless V2 endpoint (WebSocket). timeout=90000: nới thời gian mỗi phiên lên 90s.
+BROWSERLESS_WS = f"wss://production-sfo.browserless.io/chrome/playwright?token={BROWSERLESS_TOKEN}&timeout=90000"
 
 
 def check_account_status(link):
