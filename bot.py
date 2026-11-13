@@ -386,23 +386,10 @@ def clearcookies_command(message):
 
     def _process_clearcookies():
         global _clearcookies_running
-
-        # Giữ instance Render Free THỨC trong lúc quét: nếu không có request vào, Render
-        # ngủ sau ~15 phút và GIẾT thread này giữa chừng. Tự ping URL công khai mỗi 10 phút.
-        keep_alive_stop = threading.Event()
-        def _keep_alive():
-            ping_url = (WEBHOOK_URL or "").rstrip("/") + "/"
-            while not keep_alive_stop.wait(600):
-                try:
-                    extractor.requests.get(ping_url, timeout=20)
-                except Exception:
-                    pass
-        if WEBHOOK_URL:
-            threading.Thread(target=_keep_alive, daemon=True).start()
-
         try:
             # get_cookies_to_check bỏ qua cookie vừa xác nhận sống gần đây → RESUME được
-            # nếu lần trước bị ngắt giữa chừng.
+            # nếu lần trước bị NGẮT giữa chừng (tiến trình bị restart, vd do redeploy).
+            # Chỉ cần gõ lại /clearcookies là chạy tiếp từ chỗ dang dở.
             cookies = db.get_cookies_to_check()
             total = len(cookies)
             if total == 0:
@@ -414,7 +401,7 @@ def clearcookies_command(message):
                 return
 
             alive = dead = skipped = 0
-            last_edit = 0
+            last_edit_time = 0.0
 
             for idx, cookie_doc in enumerate(cookies, start=1):
                 data = cookie_doc.get('cookie_data') or {}
@@ -451,9 +438,11 @@ def clearcookies_command(message):
                         # Lỗi mạng/timeout... → không chắc chết, giữ lại
                         skipped += 1
 
-                # Cập nhật tiến trình định kỳ (tránh spam Telegram)
-                if idx - last_edit >= 10 or idx == total:
-                    last_edit = idx
+                # Cập nhật tiến trình tối đa ~15s/lần (tránh Telegram flood/429 làm "đứng hình").
+                # Edit lỗi cũng không sao: vòng lặp vẫn chạy tiếp, kết quả cuối gửi ở message mới.
+                now = time.time()
+                if now - last_edit_time >= 15 or idx == total:
+                    last_edit_time = now
                     try:
                         bot.edit_message_text(
                             t(user_id, "clearcookies_progress",
@@ -465,14 +454,18 @@ def clearcookies_command(message):
 
                 time.sleep(0.3)  # Nhẹ tay với API Netflix để tránh bị rate-limit
 
+            done_text = t(user_id, "clearcookies_done",
+                          total=total, alive=alive, dead=dead, skipped=skipped)
             try:
-                bot.edit_message_text(
-                    t(user_id, "clearcookies_done",
-                      total=total, alive=alive, dead=dead, skipped=skipped),
-                    chat_id=message.chat.id, message_id=loading_msg.message_id,
-                    parse_mode="Markdown")
+                bot.edit_message_text(done_text, chat_id=message.chat.id,
+                                      message_id=loading_msg.message_id, parse_mode="Markdown")
             except Exception:
-                pass
+                # Sửa message cũ thất bại (flood/hết hạn...) → gửi message MỚI để user luôn
+                # thấy kết quả cuối, không bị "đứng hình" ở số đếm cũ.
+                try:
+                    bot.send_message(message.chat.id, done_text, parse_mode="Markdown")
+                except Exception:
+                    pass
 
         except Exception as e:
             try:
@@ -481,7 +474,6 @@ def clearcookies_command(message):
             except Exception:
                 pass
         finally:
-            keep_alive_stop.set()  # Dừng ping giữ-thức khi quét xong
             _clearcookies_running = False
 
     threading.Thread(target=_process_clearcookies, daemon=True).start()
