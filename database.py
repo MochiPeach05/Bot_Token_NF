@@ -1,5 +1,6 @@
 from pymongo import MongoClient
 import os
+import time
 import datetime
 import pytz
 
@@ -221,6 +222,31 @@ def get_all_cookies():
     """Lấy toàn bộ document cookie trong kho (dùng cho /clearcookies)."""
     db = get_db()
     return list(db.cookies.find({}))
+
+def get_cookies_to_check(skip_if_checked_within=43200):
+    """Cookie cần kiểm tra cho /clearcookies. Bỏ qua cookie vừa được xác nhận sống gần
+    đây (cc_checked_at còn mới, mặc định 12h) để lần chạy sau có thể TIẾP TỤC thay vì
+    làm lại từ đầu — quan trọng vì job có thể bị ngắt giữa chừng (Render Free ngủ khi
+    không có traffic vào). Cookie 'bỏ qua' (không chắc) KHÔNG được đánh dấu nên vẫn
+    được thử lại ở lần chạy sau.
+    """
+    db = get_db()
+    cutoff = int(time.time()) - skip_if_checked_within
+    return list(db.cookies.find({
+        "$or": [
+            {"cc_checked_at": {"$exists": False}},
+            {"cc_checked_at": {"$lt": cutoff}},
+        ]
+    }))
+
+def mark_cookie_checked(obj_id):
+    """Đánh dấu cookie vừa được /clearcookies xác nhận còn sống (kèm mốc thời gian để
+    lần chạy sau bỏ qua, phục vụ resume)."""
+    db = get_db()
+    db.cookies.update_one(
+        {"_id": obj_id},
+        {"$set": {"is_alive": True, "cc_checked_at": int(time.time())}}
+    )
 
 def delete_cookie_by_id(obj_id):
     """Xóa 1 cookie theo _id. Trả về số doc đã xóa (0 hoặc 1)."""

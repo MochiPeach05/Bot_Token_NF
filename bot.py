@@ -386,8 +386,24 @@ def clearcookies_command(message):
 
     def _process_clearcookies():
         global _clearcookies_running
+
+        # Giữ instance Render Free THỨC trong lúc quét: nếu không có request vào, Render
+        # ngủ sau ~15 phút và GIẾT thread này giữa chừng. Tự ping URL công khai mỗi 10 phút.
+        keep_alive_stop = threading.Event()
+        def _keep_alive():
+            ping_url = (WEBHOOK_URL or "").rstrip("/") + "/"
+            while not keep_alive_stop.wait(600):
+                try:
+                    extractor.requests.get(ping_url, timeout=20)
+                except Exception:
+                    pass
+        if WEBHOOK_URL:
+            threading.Thread(target=_keep_alive, daemon=True).start()
+
         try:
-            cookies = db.get_all_cookies()
+            # get_cookies_to_check bỏ qua cookie vừa xác nhận sống gần đây → RESUME được
+            # nếu lần trước bị ngắt giữa chừng.
+            cookies = db.get_cookies_to_check()
             total = len(cookies)
             if total == 0:
                 try:
@@ -412,10 +428,10 @@ def clearcookies_command(message):
                 else:
                     try:
                         extractor.fetch_nftoken(netflix_id)
-                        # Gọi API thành công (có token) → cookie còn sống, giữ lại
+                        # Gọi API thành công (có token) → cookie còn sống, giữ lại + đánh dấu
+                        # đã kiểm tra (kèm mốc thời gian) để lần chạy sau RESUME bỏ qua nó.
                         alive += 1
-                        if not cookie_doc.get('is_alive', True):
-                            db.set_cookie_alive(cookie_doc['_id'], True)
+                        db.mark_cookie_checked(cookie_doc['_id'])
                     except extractor.requests.exceptions.HTTPError as e:
                         status = getattr(getattr(e, 'response', None), 'status_code', None)
                         if status in (401, 403, 404):
@@ -465,6 +481,7 @@ def clearcookies_command(message):
             except Exception:
                 pass
         finally:
+            keep_alive_stop.set()  # Dừng ping giữ-thức khi quét xong
             _clearcookies_running = False
 
     threading.Thread(target=_process_clearcookies, daemon=True).start()

@@ -155,7 +155,7 @@ TEXTS = {
         # === /clearcookies (Admin) — lọc, chỉ giữ cookie còn sống ===
         "clearcookies_start": "🧹 Đang quét toàn bộ kho cookie và kiểm tra từng cái qua API Netflix...\n⏳ Việc này có thể mất vài phút nếu kho lớn, vui lòng chờ.",
         "clearcookies_busy": "⏳ Đang có một tiến trình lọc kho cookie chạy rồi. Vui lòng chờ nó xong nhé.",
-        "clearcookies_empty": "ℹ️ Kho cookie đang trống, không có gì để lọc.",
+        "clearcookies_empty": "ℹ️ Không có cookie nào cần kiểm tra (kho trống, hoặc tất cả vừa được kiểm tra gần đây).",
         "clearcookies_progress": (
             "🧹 *Đang lọc kho cookie...*\n"
             "🔎 Đã kiểm tra: *{checked}/{total}*\n"
@@ -388,7 +388,7 @@ TEXTS = {
         # === /clearcookies (Admin) — keep only alive cookies ===
         "clearcookies_start": "🧹 Scanning the whole cookie store and testing each one via Netflix API...\n⏳ This may take a few minutes if the store is large, please wait.",
         "clearcookies_busy": "⏳ A cookie-store filter is already running. Please wait for it to finish.",
-        "clearcookies_empty": "ℹ️ The cookie store is empty, nothing to filter.",
+        "clearcookies_empty": "ℹ️ No cookies to check (store is empty, or all were checked recently).",
         "clearcookies_progress": (
             "🧹 *Filtering cookie store...*\n"
             "🔎 Checked: *{checked}/{total}*\n"
