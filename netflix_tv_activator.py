@@ -92,7 +92,9 @@ def activate_tv_code(cookie_dict, code):
             # Chờ ô nhập mã xuất hiện. 12s: cookie TV-được thì ô mã hiện ngay (~3-5s), nên
             # mốc này chỉ rút ngắn lúc phát hiện cookie KHÔNG-TV → /tv thử 10 lượt nhanh hơn.
             try:
-                page.wait_for_selector('input[data-uia="pin-number-0"]', timeout=12000)
+                page.wait_for_selector(
+                    'input[name="rendezvousCode"], input[data-uia="pin-number-0"]',
+                    timeout=12000)
             except PlaywrightTimeoutError:
                 # Đã qua được bước check /account (cookie xác thực OK) mà /tv8 không hiện ô nhập mã.
                 url = page.url.lower()
@@ -102,22 +104,40 @@ def activate_tv_code(cookie_dict, code):
                 # Không rõ lý do (có thể mạng/Browserless chậm) → bỏ qua tạm, KHÔNG ghi nhớ.
                 raise TVNotSupportedError("Cannot load TV8 page (possibly transient).", persist=False)
             
-            # === Bước 3: Nhập từng chữ số ===
-            for i, digit in enumerate(code):
+            # === Bước 3: Nhập mã ===
+            single = page.query_selector('input[name="rendezvousCode"]')
+            if single:
+                # UI MỚI (rendezvousCodeEntry): 1 ô duy nhất, gõ cả 8 số (Netflix tự chèn
+                # dấu '-' khi hiển thị).
                 try:
-                    pin = page.wait_for_selector(f'input[data-uia="pin-number-{i}"]', timeout=5000)
-                    pin.fill("")
-                    pin.type(digit, delay=50)
-                    page.wait_for_timeout(150)
+                    single.click()
+                    single.fill("")
+                    single.type(code, delay=60)
+                    page.wait_for_timeout(300)
                 except Exception:
-                    raise Exception(f"Cannot enter digit {i+1}")
+                    raise Exception("Cannot enter TV code (new UI)")
+            else:
+                # UI CŨ: 8 ô pin-number riêng biệt.
+                for i, digit in enumerate(code):
+                    try:
+                        pin = page.wait_for_selector(f'input[data-uia="pin-number-{i}"]', timeout=5000)
+                        pin.fill("")
+                        pin.type(digit, delay=50)
+                        page.wait_for_timeout(150)
+                    except Exception:
+                        raise Exception(f"Cannot enter digit {i+1}")
             
-            # === Bước 4: Bấm Submit ===
+            # === Bước 4: Bấm nút gửi (continue-button mới, hoặc witcher-code-submit cũ) ===
             page.wait_for_timeout(500)
             try:
-                btn = page.wait_for_selector('button[data-uia="witcher-code-submit"]', timeout=5000)
-                btn.click()
+                btn = page.wait_for_selector(
+                    'button[data-uia="continue-button"], button[data-uia="witcher-code-submit"]',
+                    timeout=5000)
             except PlaywrightTimeoutError:
+                raise ValueError("Invalid TV Code: Submit button not found.")
+            try:
+                btn.click()
+            except Exception:
                 raise ValueError("Invalid TV Code: Submit button not clickable.")
             
             # === Bước 5: Chờ kết quả ===
@@ -141,8 +161,9 @@ def activate_tv_code(cookie_dict, code):
             if "login" in url and "/tv" not in url:
                 raise TVNotSupportedError("Account rejected for TV feature.")
             
-            # Form vẫn còn → mã sai
-            form_el = page.query_selector('input[data-uia="pin-number-0"]')
+            # Ô nhập mã VẪN còn (cả UI mới lẫn cũ) → mã sai/hết hạn.
+            form_el = (page.query_selector('input[name="rendezvousCode"]')
+                       or page.query_selector('input[data-uia="pin-number-0"]'))
             if form_el:
                 raise ValueError("Invalid TV Code: Code is invalid or expired (5 min limit).")
             
